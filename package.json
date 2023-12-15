@@ -8,16 +8,20 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "test:unit": "vitest",
+    "test:type": "vitest --typecheck",
     "build-only": "vite build",
     "type-check": "vue-tsc --build --force",
     "create": "node ./src/bin/index.js --type=$npm_config_type --path=$npm_config_path"
   },
   "dependencies": {
     "@types/lodash": "^4.14.202",
+    "@vitest/coverage-v8": "^1.0.4",
+    "@vitest/ui": "^1.0.4",
     "@vueuse/core": "^10.7.0",
     "lodash": "^4.17.21",
     "minimist": "^1.2.8",
     "moment": "^2.29.4",
+    "msw": "^2.0.11",
     "pinia": "^2.1.7",
     "vue": "^3.3.10",
     "vue-router": "^4.2.5"

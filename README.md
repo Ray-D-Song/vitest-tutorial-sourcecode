@@ -1,7 +1,7 @@
 ---
 title: 'Vue 使用 Vitest进行单元测试'
 description: '笔者过去并没有写过前端单测, 只在例如 Go 这样社区大力推崇 TDD 的语言中实践过, 最近遇到很多前端通过人肉测试难以覆盖的场景, 因此尝试 vitest.'
-cover: ''
+cover: 'https://pic-base-1307984077.cos.ap-nanjing.myqcloud.com/202312141754429.png'
 ---
 
 # 单元测试的定义
@@ -35,8 +35,8 @@ Vitest 默认和 Vite 配置集成, 不需要额外的配置文件.
 /** /reg/phone.ts */
 // 校验是否国内手机号
 export function regChinesePhoneNumber(phoneNumber: string) {
-  var regex = /^1[3456789]\d{9}$/;
-  return regex.test(phoneNumber);
+  const regex = /^1[3456789]\d{9}$/
+  return regex.test(phoneNumber)
 }
 
 /** /reg/phone.test.ts */
@@ -301,6 +301,7 @@ describe('Counter Store', () => {
 |  ----  | ----  |
 | not | 取反 |
 | toBe | 判断值或对象引用是否相同 |
+| toEqual | 判断对象值是否相同 |
 | toBeGreaterThan | 大于 |
 | toBeGreaterThanOrEqual | 大于等于 |
 | toBeLessThan | 小于 |
@@ -316,11 +317,163 @@ describe('Counter Store', () => {
 
 # mock
 为了应对业务耦合, 做到仅测试功能代码, 我们可以使用 mock 工具进行数据模拟.  
-最常见的场景是模拟请求, 一般情况下你可以自己用一个 Promise 来模拟请求结果, 但有些情况也许你需要
+最常见的场景是模拟请求, 一般情况下你可以自己用一个 Promise 来模拟请求结果, 但有些情况也许你需要更真实的场景.  
+常用的 mock 工具, 例如 APIfox, 是通过接口定义来「启动一个真实的服务器返回假数据」. 而 Vitest 并不会启动真正的 node 服务器, 而是通过`mswjs`来拦截对应地址的请求.  
+也就是说你可以很方便的去模拟「异常请求」的场景.  
+首先安装 msw: `pnpm install msw`  
+
+假设我们需要请求`https://thorn.mock/test`这个接口, 获取`{msg: 'hey'}`的 json 数据, 以下是我们的测试用例.  
+```ts
+/** /src/api/__test__/mock.test.ts */
+import { describe, expect, it } from 'vitest'
+
+describe('mock', async () => {
+  it('mock api', async () => {
+    const response = await fetch('https://thorn.mock/test') 
+    // 使用 toEqual 来比较对象值
+    expect(await response.json()).toEqual({
+      msg: 'hey'
+    })
+  })
+})
+```
+
+为了 mock 这个接口, 我们需要按照 msw 的语法编写一个 server.
+```ts
+/** /src/mocks/server.ts */
+import { setupServer } from 'msw/node'
+import { HttpHandler, HttpResponse, http } from 'msw'
+
+export const handlers: Array<HttpHandler> = [
+  http.get('https://thorn.mock/test', () => {
+    return HttpResponse.json({
+      msg: 'hey'
+    })
+  })
+]
+
+export const server = setupServer(...handlers)
+```
+理想状况下, 我们希望每一次测试开始都启动 mock 服务器, 测试结束将服务关掉, Vitest 提供了四个 api 来实现这个过程.  
+在 Vitest.config.ts 中, 添加 setupFiles 选项, 该选项接受`string|string[]`作为文件路径, 写入的文件每次 Vitest 启动都会自动执行.  
+```ts
+defineConfig({
+  test: {
+    // ...
+    setupFiles: './src/setup.ts'
+    // ...
+  }
+})
+```
+在 setup.ts 文件中, 我们调用 Vitest 钩子:
+```ts
+import { server } from './mocks/server'
+import { beforeAll, afterAll, afterEach } from 'vitest'
+
+// 在每一次测试开始前开启服务器
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+// 在每一次测试结束后关闭服务器
+afterAll(() => server.close())
+// 在每一个用例结束后重置 handlers
+afterEach(() => server.resetHandlers())
+``` 
+开启测试, 会显示测试已通过.  
+![unit test pass](https://pic-base-1307984077.cos.ap-nanjing.myqcloud.com/202312141529162.png)
+请注意, 因为 msw 的作用是拦截请求而不是开启模拟服务器, 因此直接本地调用并不起作用.
 # 异步测试
 
 # 优化测试过程
+## 内联测试
+就和内联样式表一样, 所谓内联测试就是将测试代码和源码写在一起.  
+改造一下正则表达式的例子:
+```ts
+/** /src/reg/phone.ts */
+export function regChinesePhoneNumber(phoneNumber: string) {
+  const regex = /^1[3456789]\d{9}$/
+  return regex.test(phoneNumber)
+}
+
+// 内联测试应该放在源码的底部
+/**
+ * 为了解决 ts 报错
+ * 需要在 tsconfig.json 中添加
+ * {"compilerOptions": {"types": ["vitest/importMeta"]}}
+ */
+if(import.meta.vitest) {
+  const { it, expect } = import.meta.vitest
+  it('phone number belongs to Chinese', () => {
+    expect(regChinesePhoneNumber('41772566381')).toBe(false)
+  })
+}
+```
+随后更新一下`vitest.config.ts`.
+```ts
+export default defineConfig({
+  test: {
+    includeSource: ['src/**/*.{js,ts}'], 
+  }
+})
+```
+可以看到新运行的用例增加了一个非`test.ts`结尾的文件.  
+![in source test](https://pic-base-1307984077.cos.ap-nanjing.myqcloud.com/202312141609782.png)
+这样做的缺点是会造成打包后的代码体积膨胀, 但我们可以做一些处理让代码块作为不会被执行的区块被 tree-shake 掉.
+```ts
+/** vite.config.ts */
+export default defineConfig({
+  define: {
+    'import.meta.vitest': 'undefined', 
+  }, 
+})
+```
 ## 类型测试 (Experimental)
-## 整合 CI/CD
-## 测试覆盖率
+ts 的类型在编译后会被擦除, 也就是说无论类型代码写的有多完备, 对真正运行的 js 代码并不会有影响. 但通过类型测试可以促使类型代码更sound, 以此提高 ts 项目的强健性.  
+不过总的来说类型测试并不常用, 此处仅介绍一下一般流程.  
+```ts
+/** /src/types/MPick.d.ts */
+// 实现一个自己的 Pick 方法
+export type MPick<T, K extends keyof T> = {
+  [P in K]: T[P]
+}
+
+/** /src/types/__test__/MPick.test-d.ts */
+
+// vitest 会自动扫描 .test-d.ts 命令的文件
+import { expectTypeOf, test } from 'vitest'
+import type { MPick } from '../MPick'
+
+test('test mock Pick', () => {
+  interface Foo {
+    a: string
+    b: number
+  }
+  type Bar = MPick<Foo, 'a'>
+  interface Exp {
+    a: string
+  }
+  expectTypeOf<Bar>().toEqualTypeOf<Exp>()
+})
+```
+为了启动类型测试, 需要在启动时指定 --typecheck, 添加一个新的 npm 命令 `"test:type": "vitest --typecheck"`  
+运行`pnpm run test:type`运行测试
+## 可视化
+Vitest 提供了 UI 界面进行交互, 运行`pnpm install @vitest/ui`安装, `pnpm run test:unit --ui` 启动
+![ui](https://pic-base-1307984077.cos.ap-nanjing.myqcloud.com/202312141744611.png)
+里面涵盖了几乎所有的操作, 还可以查看 console、源码和依赖图.
+![Graph](https://pic-base-1307984077.cos.ap-nanjing.myqcloud.com/202312141745142.png)
+## 代码覆盖率
+Vitest 通过 V8 提供代码覆盖率检查, 运行`pnpm install @vitest/coverage-v8`安装  
+在 vitest.config 中配置覆盖率选项  
+```ts
+defineConfig({
+  test: {
+    coverage: {
+      enabled: true,
+      reporter: ['html']
+    }
+  }
+})
+```
+这样就可以在 ui 界面上看到代码覆盖率结果了  
+![coverage ui](https://pic-base-1307984077.cos.ap-nanjing.myqcloud.com/202312141752020.png)
+
 

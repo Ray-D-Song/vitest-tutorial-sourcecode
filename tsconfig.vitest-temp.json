@@ -1,0 +1,19 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    },
+    {
+      "path": "./tsconfig.app.json"
+    },
+    {
+      "path": "./tsconfig.vitest.json"
+    }
+  ],
+  "compilerOptions": {
+    "emitDeclarationOnly": false,
+    "incremental": true,
+    "tsBuildInfoFile": "/Users/ray-d-song/temp/SourceCode/vitest-tutorial-sourcecode/node_modules/.pnpm/vitest@1.0.1_@types+node@18.19.2_jsdom@23.0.1/node_modules/vitest/dist/vendor/tsconfig.tmp.tsbuildinfo"
+  }
+}
